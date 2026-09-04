@@ -2,7 +2,6 @@ const express = require('express');
 const mineflayer = require('mineflayer');
 const app = express();
 
-// Web server kecil agar Koyeb / Render mendeteksi aplikasi dalam keadaan 'Healthy'
 const PORT = process.env.PORT || 8000;
 app.get('/', (req, res) => {
   res.send('Bot Minecraft 24 Jam Aktif!');
@@ -11,12 +10,11 @@ app.listen(PORT, () => {
   console.log(`Web server listening on port ${PORT}`);
 });
 
-// Konfigurasi Server Minecraft Kamu
 const MC_CONFIG = {
-  host: '163.5.201.2', // Contoh: 'myserver.freemcserver.net'
-  port: 12546,             // Ganti dengan port servermu (angka)
+  host: '163.5.201.2',
+  port: 12546,
   username: 'BotPenjaga24Jam',
-  version: '1.20.1'           // Auto-detect versi Minecraft
+  version: '1.20.1'
 };
 
 function startBot() {
@@ -26,7 +24,22 @@ function startBot() {
     host: MC_CONFIG.host,
     port: MC_CONFIG.port,
     username: MC_CONFIG.username,
-    version: MC_CONFIG.version
+    version: MC_CONFIG.version,
+    checkTimeoutInterval: 60000
+  });
+
+  // Handle channel custom payload dari Fabric & owo-lib
+  bot._client.on('custom_payload', (packet) => {
+    try {
+      if (packet.channel && (packet.channel.includes('owo') || packet.channel.includes('fabric'))) {
+        bot._client.write('custom_payload', {
+          channel: packet.channel,
+          data: Buffer.alloc(0)
+        });
+      }
+    } catch (err) {
+      // Abaikan jika channel ditutup
+    }
   });
 
   bot.on('login', () => {
@@ -35,11 +48,11 @@ function startBot() {
 
   bot.on('spawn', () => {
     console.log('[BOT] Karakter sudah spawn di world.');
-    // Lompat tiap 15 detik agar tidak di-kick oleh sistem anti-AFK
+    // Gerakan kecil tiap 20 detik agar anti-AFK tidak kick bot
     setInterval(() => {
       bot.setControlState('jump', true);
-      setTimeout(() => bot.setControlState('jump', false), 400);
-    }, 15000);
+      setTimeout(() => bot.setControlState('jump', false), 350);
+    }, 20000);
   });
 
   bot.on('end', (reason) => {
