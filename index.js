@@ -9,7 +9,8 @@ const botState = {
   status: 'initializing',
   connected: false,
   lastSpawn: null,
-  reconnectCount: 0
+  reconnectCount: 0,
+  autoAttack: true
 };
 
 app.get('/', (req, res) => {
@@ -33,11 +34,14 @@ const MC_CONFIG = {
   username: process.env.MC_USERNAME || 'nonstop',
   version: process.env.MC_VERSION || '1.19.2',
   auth: process.env.MC_AUTH || 'offline',
-  password: process.env.MC_PASSWORD || '' // jika server butuh /login <password>
+  password: process.env.MC_PASSWORD || '', // jika server butuh /login <password>
+  autoAttack: process.env.AUTO_ATTACK !== 'false', // default aktif
+  attackIntervalMs: parseInt(process.env.ATTACK_INTERVAL_MS, 10) || 1000 // interval pukul (ms)
 };
 
 let bot = null;
 let afkInterval = null;
+let attackInterval = null;
 let reconnectTimeout = null;
 
 function cleanup() {
@@ -45,12 +49,48 @@ function cleanup() {
     clearInterval(afkInterval);
     afkInterval = null;
   }
+  if (attackInterval) {
+    clearInterval(attackInterval);
+    attackInterval = null;
+  }
   if (bot) {
     bot.removeAllListeners();
     bot = null;
   }
   botState.connected = false;
   botState.status = 'disconnected';
+}
+
+function startAutoAttack() {
+  if (attackInterval) clearInterval(attackInterval);
+  botState.autoAttack = true;
+  console.log(`[BOT] Auto-attack diaktifkan (interval: ${MC_CONFIG.attackIntervalMs}ms).`);
+
+  attackInterval = setInterval(() => {
+    if (!bot || !bot.entity) return;
+
+    // Cari entitas mob/monster terdekat dalam radius 3.5 blok
+    const target = bot.nearestEntity((entity) => {
+      return (entity.type === 'mob' || entity.type === 'hostile') &&
+        entity.position.distanceTo(bot.entity.position) <= 3.5;
+    });
+
+    if (target) {
+      bot.attack(target);
+    } else {
+      // Jika tidak ada target spesifik, lakukan ayunan tangan (swing arm)
+      bot.swingArm('right');
+    }
+  }, MC_CONFIG.attackIntervalMs);
+}
+
+function stopAutoAttack() {
+  if (attackInterval) {
+    clearInterval(attackInterval);
+    attackInterval = null;
+  }
+  botState.autoAttack = false;
+  console.log('[BOT] Auto-attack dinonaktifkan.');
 }
 
 function scheduleReconnect(delay = 10000) {
@@ -119,15 +159,32 @@ function startBot() {
         if (bot) bot.setControlState('jump', false);
       }, 350);
     }, 20000);
+
+    // Jalankan auto-attack saat spawn jika dikonfigurasi aktif
+    if (MC_CONFIG.autoAttack) {
+      setTimeout(() => {
+        startAutoAttack();
+      }, 2000);
+    }
   });
 
   bot.on('chat', (username, message) => {
     if (username === bot.username) return;
     console.log(`[CHAT] ${username}: ${message}`);
 
-    // Perintah sederhana
-    if (message.toLowerCase() === '!ping') {
+    const cmd = message.toLowerCase().trim();
+
+    // Perintah interaktif via chat
+    if (cmd === '!ping') {
       bot.chat('pong!');
+    } else if (cmd === '!attack on') {
+      startAutoAttack();
+      bot.chat('Auto-attack continuous diaktifkan!');
+    } else if (cmd === '!attack off') {
+      stopAutoAttack();
+      bot.chat('Auto-attack dinonaktifkan.');
+    } else if (cmd === '!status') {
+      bot.chat(`Status: ${botState.status} | Auto-Attack: ${botState.autoAttack ? 'ON' : 'OFF'}`);
     }
   });
 
