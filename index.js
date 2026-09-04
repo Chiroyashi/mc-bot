@@ -32,7 +32,7 @@ const MC_CONFIG = {
   host: process.env.MC_HOST || '162.55.80.246',
   port: parseInt(process.env.MC_PORT, 10) || 10790,
   username: process.env.MC_USERNAME || 'nonstop',
-  version: process.env.MC_VERSION || '1.19.2',
+  version: process.env.MC_VERSION || '1.20.1', // Server kamu berjalan di Minecraft 1.20.1
   auth: process.env.MC_AUTH || 'offline',
   password: process.env.MC_PASSWORD || '', // jika server butuh /login <password>
   autoAttack: process.env.AUTO_ATTACK !== 'false', // default aktif
@@ -54,7 +54,14 @@ function cleanup() {
     attackInterval = null;
   }
   if (bot) {
-    bot.removeAllListeners();
+    try {
+      if (bot._client) {
+        bot._client.on('error', () => {}); // Hindari crash saat socket disconnect
+      }
+      bot.end();
+    } catch {
+      // Abaikan error saat cleanup socket
+    }
     bot = null;
   }
   botState.connected = false;
@@ -203,7 +210,18 @@ function startBot() {
     console.log('[BOT] Error:', err.message);
     scheduleReconnect(10000);
   });
+
+  if (bot._client) {
+    bot._client.on('error', (err) => {
+      console.log('[CLIENT] Socket error:', err.message);
+    });
+  }
 }
+
+// Tangani unhandled error agar container tidak crash saat socket reset
+process.on('uncaughtException', (err) => {
+  console.error('[SYSTEM] Uncaught Exception:', err.message);
+});
 
 // Graceful shutdown untuk Render / container restart
 process.on('SIGTERM', () => {
