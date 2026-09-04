@@ -16,7 +16,7 @@ const MC_CONFIG = {
   host: '163.5.201.2', // Contoh: 'myserver.freemcserver.net'
   port: 12546,             // Ganti dengan port servermu (angka)
   username: 'BotPenjaga24Jam',
-  version: false           // Auto-detect versi Minecraft
+  version: '1.20.1'           // Auto-detect versi Minecraft
 };
 
 function startBot() {
