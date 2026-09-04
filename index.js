@@ -11,8 +11,8 @@ app.listen(PORT, () => {
 });
 
 const MC_CONFIG = {
-  host: '163.5.201.4',
-  port: 11426,
+  host: '162.55.80.246',
+  port: 10790,
   username: 'Bapaknya Joni',
   version: '1.19.2'
 };
