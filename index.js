@@ -11,10 +11,10 @@ app.listen(PORT, () => {
 });
 
 const MC_CONFIG = {
-  host: '163.5.201.2',
-  port: 12546,
-  username: 'BotPenjaga24Jam',
-  version: '1.20.1'
+  host: '163.5.201.4',
+  port: 11426,
+  username: 'Bapaknya Joni',
+  version: '1.19.2'
 };
 
 function startBot() {
