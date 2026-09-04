@@ -28,7 +28,7 @@ function startBot() {
     checkTimeoutInterval: 60000
   });
 
-  // Handle channel custom payload dari Fabric & owo-lib
+  // Balas query paket kustom dari Fabric & owo-lib saat handshake
   bot._client.on('custom_payload', (packet) => {
     try {
       if (packet.channel && (packet.channel.includes('owo') || packet.channel.includes('fabric'))) {
@@ -38,7 +38,7 @@ function startBot() {
         });
       }
     } catch (err) {
-      // Abaikan jika channel ditutup
+      // Abaikan error penulisan stream
     }
   });
 
@@ -48,7 +48,7 @@ function startBot() {
 
   bot.on('spawn', () => {
     console.log('[BOT] Karakter sudah spawn di world.');
-    // Gerakan kecil tiap 20 detik agar anti-AFK tidak kick bot
+    // Cegah kick AFK tiap 20 detik
     setInterval(() => {
       bot.setControlState('jump', true);
       setTimeout(() => bot.setControlState('jump', false), 350);
