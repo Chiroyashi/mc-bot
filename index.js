@@ -32,7 +32,7 @@ const MC_CONFIG = {
   host: process.env.MC_HOST || '162.55.80.246',
   port: parseInt(process.env.MC_PORT, 10) || 10790,
   username: process.env.MC_USERNAME || 'nonstop',
-  version: process.env.MC_VERSION || '1.20.1', // Server kamu berjalan di Minecraft 1.20.1
+  version: process.env.MC_VERSION || '26.2', // Server kamu berjalan di Minecraft 1.20.1
   auth: process.env.MC_AUTH || 'offline',
   password: process.env.MC_PASSWORD || '', // jika server butuh /login <password>
   autoAttack: process.env.AUTO_ATTACK !== 'false', // default aktif
