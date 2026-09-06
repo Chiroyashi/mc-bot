@@ -1,6 +1,18 @@
 const express = require('express');
 const mineflayer = require('mineflayer');
 
+// 1. Konfigurasi diletakkan di PALING ATAS agar tidak terjadi error hoisting
+const MC_CONFIG = {
+  host: process.env.MC_HOST || '162.55.80.246',
+  port: parseInt(process.env.MC_PORT, 10) || 10790,
+  username: process.env.MC_USERNAME || 'nonstop',
+  version: process.env.MC_VERSION || '1.20.1', // Versi server Minecraft
+  auth: process.env.MC_AUTH || 'offline',
+  pin: process.env.MC_PIN || '2111', // PIN AuthMe kamu
+  autoAttack: process.env.AUTO_ATTACK !== 'false', // default aktif
+  attackIntervalMs: parseInt(process.env.ATTACK_INTERVAL_MS, 10) || 1000
+};
+
 const app = express();
 const PORT = process.env.PORT || 8000;
 
@@ -8,11 +20,13 @@ const PORT = process.env.PORT || 8000;
 const botState = {
   status: 'initializing',
   connected: false,
+  authenticated: false,
   lastSpawn: null,
   reconnectCount: 0,
   autoAttack: true
 };
 
+// Web Endpoint untuk Uptime & Health Check (Render/UptimeRobot)
 app.get('/', (req, res) => {
   res.json({
     message: 'Bot Minecraft 24 Jam Aktif!',
@@ -27,24 +41,14 @@ app.listen(PORT, () => {
   console.log(`[HTTP] Web server listening on port ${PORT}`);
 });
 
-// Konfigurasi dinamis via Environment Variable (Render / .env) dengan default fallback
-const MC_CONFIG = {
-  host: process.env.MC_HOST || '162.55.80.246',
-  port: parseInt(process.env.MC_PORT, 10) || 10790,
-  username: process.env.MC_USERNAME || 'nonstop',
-  version: process.env.MC_VERSION || false, // Server kamu berjalan di Minecraft 1.20.1
-  auth: process.env.MC_AUTH || 'offline',
-  password: process.env.MC_PASSWORD || '', // jika server butuh /login <password>
-  autoAttack: process.env.AUTO_ATTACK !== 'false', // default aktif
-  attackIntervalMs: parseInt(process.env.ATTACK_INTERVAL_MS, 10) || 1000 // interval pukul (ms)
-};
-
 let bot = null;
 let afkInterval = null;
 let attackInterval = null;
 let reconnectTimeout = null;
+let intentionalDisconnect = false;
 
 function cleanup() {
+  intentionalDisconnect = true;
   if (afkInterval) {
     clearInterval(afkInterval);
     afkInterval = null;
@@ -56,7 +60,7 @@ function cleanup() {
   if (bot) {
     try {
       if (bot._client) {
-        bot._client.on('error', () => {}); // Hindari crash saat socket disconnect
+        bot._client.on('error', () => {});
       }
       bot.end();
     } catch {
@@ -65,8 +69,18 @@ function cleanup() {
     bot = null;
   }
   botState.connected = false;
+  botState.authenticated = false;
   botState.status = 'disconnected';
+  intentionalDisconnect = false;
 }
+
+// Hanya serang monster musuh (tidak membunuh ayam/sapi/kambing ternak)
+const HOSTILE_MOBS = new Set([
+  'zombie', 'skeleton', 'creeper', 'spider', 'cave_spider', 'enderman',
+  'witch', 'phantom', 'pillager', 'ravager', 'evoker', 'vindicator',
+  'blaze', 'wither_skeleton', 'piglin_brute', 'slime', 'magma_cube',
+  'drowned', 'husk', 'stray'
+]);
 
 function startAutoAttack() {
   if (attackInterval) clearInterval(attackInterval);
@@ -76,17 +90,17 @@ function startAutoAttack() {
   attackInterval = setInterval(() => {
     if (!bot || !bot.entity) return;
 
-    // Cari entitas mob/monster terdekat dalam radius 3.5 blok
+    // Cari monster musuh terdekat dalam jarak 3.5 blok
     const target = bot.nearestEntity((entity) => {
-      return (entity.type === 'mob' || entity.type === 'hostile') &&
-        entity.position.distanceTo(bot.entity.position) <= 3.5;
+      return (
+        entity.name &&
+        HOSTILE_MOBS.has(entity.name.toLowerCase()) &&
+        entity.position.distanceTo(bot.entity.position) <= 3.5
+      );
     });
 
     if (target) {
       bot.attack(target);
-    } else {
-      // Jika tidak ada target spesifik, lakukan ayunan tangan (swing arm)
-      bot.swingArm('right');
     }
   }, MC_CONFIG.attackIntervalMs);
 }
@@ -109,6 +123,19 @@ function scheduleReconnect(delay = 10000) {
     reconnectTimeout = null;
     startBot();
   }, delay);
+}
+
+// Fungsi eksekusi AuthMe
+function handleAuthMe(action) {
+  if (!bot) return;
+
+  if (action === 'register') {
+    console.log('[AUTH] Menjalankan /register *** ***');
+    bot.chat(`/register ${MC_CONFIG.pin} ${MC_CONFIG.pin}`);
+  } else if (action === 'login') {
+    console.log('[AUTH] Menjalankan /login ***');
+    bot.chat(`/login ${MC_CONFIG.pin}`);
+  }
 }
 
 function startBot() {
@@ -135,7 +162,7 @@ function startBot() {
         });
       }
     } catch {
-      // Abaikan error penulisan stream
+      // Abaikan
     }
   });
 
@@ -150,14 +177,17 @@ function startBot() {
     botState.status = 'online';
     botState.lastSpawn = new Date().toISOString();
 
-    // Login otomatis jika server mewajibkan authme (/login <password>)
-    if (MC_CONFIG.password) {
+    // 1. Eksekusi AuthMe saat spawn (coba login & register sekaligus)
+    setTimeout(() => {
+      // Coba register dulu (jika belum terdaftar), lalu login
+      handleAuthMe('register');
       setTimeout(() => {
-        bot.chat(`/login ${MC_CONFIG.password}`);
-      }, 1500);
-    }
+        handleAuthMe('login');
+        botState.authenticated = true;
+      }, 1000);
+    }, 1500);
 
-    // Cegah kick AFK tiap 20 detik
+    // 2. Cegah kick AFK tiap 20 detik (lompat kecil)
     if (afkInterval) clearInterval(afkInterval);
     afkInterval = setInterval(() => {
       if (!bot || !bot.entity) return;
@@ -167,31 +197,58 @@ function startBot() {
       }, 350);
     }, 20000);
 
-    // Jalankan auto-attack saat spawn jika dikonfigurasi aktif
+    // 3. Aktifkan auto-attack setelah bot masuk sepenuhnya
     if (MC_CONFIG.autoAttack) {
       setTimeout(() => {
         startAutoAttack();
-      }, 2000);
+      }, 3000);
     }
   });
 
+  // Listener pesan dari server (Deteksi AuthMe via chat)
+  bot.on('messagestr', (message) => {
+    const rawMsg = message.toLowerCase();
+
+    // Sembunyikan PIN dari console log jika server memantulkan kembali chat login
+    const sanitizedLog = message.replace(new RegExp(MC_CONFIG.pin, 'g'), '***');
+    console.log(`[CHAT/SERVER] ${sanitizedLog}`);
+
+    // Jika server meminta /register
+    if (rawMsg.includes('/register') || rawMsg.includes('daftar')) {
+      if (!botState.authenticated) {
+        handleAuthMe('register');
+      }
+    }
+
+    // Jika server meminta /login
+    if (rawMsg.includes('/login') || rawMsg.includes('masuk')) {
+      if (!botState.authenticated) {
+        handleAuthMe('login');
+      }
+    }
+
+    // Indikasi sukses login AuthMe
+    if (rawMsg.includes('successful') || rawMsg.includes('berhasil masuk') || rawMsg.includes('logged in')) {
+      botState.authenticated = true;
+      console.log('[AUTH] Terautentikasi penuh dengan AuthMe!');
+    }
+  });
+
+  // Perintah interaktif pemain via chat
   bot.on('chat', (username, message) => {
     if (username === bot.username) return;
-    console.log(`[CHAT] ${username}: ${message}`);
-
     const cmd = message.toLowerCase().trim();
 
-    // Perintah interaktif via chat
     if (cmd === '!ping') {
       bot.chat('pong!');
     } else if (cmd === '!attack on') {
       startAutoAttack();
-      bot.chat('Auto-attack continuous diaktifkan!');
+      bot.chat('Auto-attack aktif!');
     } else if (cmd === '!attack off') {
       stopAutoAttack();
       bot.chat('Auto-attack dinonaktifkan.');
     } else if (cmd === '!status') {
-      bot.chat(`Status: ${botState.status} | Auto-Attack: ${botState.autoAttack ? 'ON' : 'OFF'}`);
+      bot.chat(`Status: ${botState.status} | Auth: ${botState.authenticated ? 'YES' : 'NO'} | Attack: ${botState.autoAttack ? 'ON' : 'OFF'}`);
     }
   });
 
@@ -202,6 +259,7 @@ function startBot() {
   });
 
   bot.on('end', (reason) => {
+    if (intentionalDisconnect) return;
     console.log(`[BOT] Terputus (${reason}).`);
     scheduleReconnect(10000);
   });
@@ -218,20 +276,19 @@ function startBot() {
   }
 }
 
-// Tangani unhandled error agar container tidak crash saat socket reset
+// Mencegah crash jika terjadi socket reset mendadak
 process.on('uncaughtException', (err) => {
   console.error('[SYSTEM] Uncaught Exception:', err.message);
 });
 
-// Graceful shutdown untuk Render / container restart
 process.on('SIGTERM', () => {
-  console.log('[SYSTEM] SIGTERM diterima, menutup bot...');
+  console.log('[SYSTEM] SIGTERM diterima, mematikan bot...');
   cleanup();
   process.exit(0);
 });
 
 process.on('SIGINT', () => {
-  console.log('[SYSTEM] SIGINT diterima, menutup bot...');
+  console.log('[SYSTEM] SIGINT diterima, mematikan bot...');
   cleanup();
   process.exit(0);
 });
